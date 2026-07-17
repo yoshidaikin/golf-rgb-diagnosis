@@ -37,7 +37,7 @@
   </style>
 </head>
 <body>
-<header><h1>ゴルフ場芝生 RGB簡易診断 Ver.0.4.1 ドライ予兆版</h1></header>
+<header><h1>ゴルフ場芝生 RGB簡易診断 Ver.0.6.3 スマホ画像選択対応版</h1></header>
 <main>
   <section>
     <h2>1. 保存情報（任意）</h2>
@@ -79,8 +79,17 @@
 
   <section>
     <h2>3. 撮影または画像を選択</h2>
-    <input id="file" type="file" accept="image/*" capture="environment">
-    <p class="hint">カメラ撮影と、LINE・メール等で保存した画像の両方に対応します。画像は端末内で縮小・解析し、外部へ送信しません。</p>
+    <div class="grid2">
+      <div>
+        <label for="file">フォト・ファイルから選択</label>
+        <input id="file" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+      </div>
+      <div>
+        <label for="cameraFile">カメラで撮影</label>
+        <input id="cameraFile" type="file" accept="image/*" capture="environment">
+      </div>
+    </div>
+    <p class="hint">左はGoogleフォト・Files・ドキュメント等から選択、右はその場でカメラ撮影します。画像は端末内で縮小・解析し、外部へ送信しません。</p>
     <div id="status">画像を選択してください。</div>
   </section>
 

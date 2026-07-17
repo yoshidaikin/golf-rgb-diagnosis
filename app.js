@@ -10,6 +10,7 @@ let img = null, baseCanvas = document.createElement("canvas");
 let crop = {x:0,y:0,w:0,h:0}, drag=null;
 let resultOriginal=null, resultOverlay=null;
 let lastMetrics=null;
+let currentSourceFileName="";
 
 $("useMeta").addEventListener("change", ()=>{$("metaFields").classList.toggle("hidden", !$("useMeta").checked);});
 $("shootDate").value = new Date().toISOString().slice(0,10);
@@ -71,21 +72,30 @@ function rgbToHsv(r,g,b){
   return [h,s*255,mx*255];
 }
 function setStatus(t){$("status").textContent=t}
-$("file").addEventListener("change", async e=>{
-  const f=e.target.files?.[0]; if(!f)return;
-  setStatus("画像を読み込んでいます…");
-  const bmp=await createImageBitmap(f);
-  const scale=Math.min(1,MAX_SIDE/Math.max(bmp.width,bmp.height));
-  baseCanvas.width=Math.max(1,Math.round(bmp.width*scale));
-  baseCanvas.height=Math.max(1,Math.round(bmp.height*scale));
-  baseCanvas.getContext("2d").drawImage(bmp,0,0,baseCanvas.width,baseCanvas.height);
-  img=baseCanvas;
-  resetCrop();
-  drawCrop();
-  $("cropSection").classList.remove("hidden");
-  $("resultSection").classList.add("hidden");
-  setStatus(`読込完了：${baseCanvas.width} × ${baseCanvas.height}px`);
-});
+async function loadSelectedImageFile(f){
+  if(!f)return;
+  try{
+    currentSourceFileName=f.name||"camera.jpg";
+    setStatus("画像を読み込んでいます…");
+    const bmp=await createImageBitmap(f);
+    const scale=Math.min(1,MAX_SIDE/Math.max(bmp.width,bmp.height));
+    baseCanvas.width=Math.max(1,Math.round(bmp.width*scale));
+    baseCanvas.height=Math.max(1,Math.round(bmp.height*scale));
+    baseCanvas.getContext("2d").drawImage(bmp,0,0,baseCanvas.width,baseCanvas.height);
+    img=baseCanvas;
+    resetCrop();
+    drawCrop();
+    $("cropSection").classList.remove("hidden");
+    $("resultSection").classList.add("hidden");
+    setStatus(`読込完了：${baseCanvas.width} × ${baseCanvas.height}px`);
+  }catch(err){
+    console.error(err);
+    setStatus("画像を読み込めませんでした。別の画像形式でお試しください。");
+    alert("画像読込エラー："+err.message);
+  }
+}
+$("file").addEventListener("change", e=>loadSelectedImageFile(e.target.files?.[0]));
+$("cameraFile").addEventListener("change", e=>loadSelectedImageFile(e.target.files?.[0]));
 function resetCrop(){
   crop={x:baseCanvas.width*.1,y:baseCanvas.height*.1,w:baseCanvas.width*.8,h:baseCanvas.height*.8};
 }
@@ -552,7 +562,7 @@ $("registerTeacherBtn").addEventListener("click",async()=>{
       courseName:$("useMeta").checked?$("courseName").value:"",
       shootDate:$("useMeta").checked?$("shootDate").value:"",
       targetName:$("useMeta").checked?$("targetName").value:"",
-      sourceFile:$("file").files?.[0]?.name||"",
+      sourceFile:currentSourceFileName||"",
       species:$("species").value,
       mode:$("mode").value,
       topdress:$("topdress").value,
