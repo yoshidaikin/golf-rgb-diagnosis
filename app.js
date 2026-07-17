@@ -95,7 +95,145 @@ async function loadSelectedImageFile(f){
   }
 }
 $("file").addEventListener("change", e=>loadSelectedImageFile(e.target.files?.[0]));
-$("cameraFile").addEventListener("change", e=>loadSelectedImageFile(e.target.files?.[0]));
+
+// ===== Turf Vision 0 AR撮影ガイド Ver.0.0.2 =====
+let cameraStream = null;
+let capturedCameraBlob = null;
+
+function showCaptureMode(mode){
+  const isAR = mode === "ar";
+  $("selectModePanel").classList.toggle("hidden", isAR);
+  $("arModePanel").classList.toggle("hidden", !isAR);
+  $("selectModeBtn").classList.toggle("active", !isAR);
+  $("arModeBtn").classList.toggle("active", isAR);
+  if(!isAR) stopGuideCamera();
+}
+
+$("selectModeBtn").addEventListener("click", ()=>showCaptureMode("select"));
+$("arModeBtn").addEventListener("click", ()=>showCaptureMode("ar"));
+
+async function startGuideCamera(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    alert("この端末またはブラウザではAR撮影ガイドを利用できません。ChromeまたはSafariの最新版でお試しください。");
+    return;
+  }
+  try{
+    stopGuideCamera();
+    setStatus("カメラを起動しています…");
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:"environment"},
+        width:{ideal:1920},
+        height:{ideal:1080}
+      },
+      audio:false
+    });
+    const video = $("cameraVideo");
+    video.srcObject = cameraStream;
+    await video.play();
+    $("cameraIdle").classList.add("hidden");
+    $("cameraReview").classList.add("hidden");
+    $("cameraLive").classList.remove("hidden");
+    setStatus("AR撮影ガイド表示中です。撮影するまでは診断しません。");
+  }catch(err){
+    console.error(err);
+    let msg = "カメラを起動できませんでした。";
+    if(err.name==="NotAllowedError") msg += " カメラの使用を許可してください。";
+    else if(err.name==="NotFoundError") msg += " 利用可能なカメラが見つかりません。";
+    else msg += " Chromeを再起動してもう一度お試しください。";
+    setStatus(msg);
+    alert(msg);
+  }
+}
+
+function stopGuideCamera(){
+  if(cameraStream){
+    cameraStream.getTracks().forEach(track=>track.stop());
+    cameraStream = null;
+  }
+  const video = $("cameraVideo");
+  if(video) video.srcObject = null;
+  if($("cameraLive")) $("cameraLive").classList.add("hidden");
+  if($("cameraIdle")) $("cameraIdle").classList.remove("hidden");
+}
+
+function drawVideoCover(video, canvas){
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if(!vw || !vh) throw new Error("カメラ映像の準備ができていません。");
+  const maxSide = 1600;
+  const scale = Math.min(1, maxSide/Math.max(vw,vh));
+  canvas.width = Math.max(1, Math.round(vw*scale));
+  canvas.height = Math.max(1, Math.round(vh*scale));
+  canvas.getContext("2d").drawImage(video,0,0,canvas.width,canvas.height);
+}
+
+async function captureGuideFrame(){
+  try{
+    const video = $("cameraVideo");
+    const captureCanvas = $("cameraCaptureCanvas");
+    drawVideoCover(video, captureCanvas);
+
+    const review = $("cameraReviewCanvas");
+    review.width = captureCanvas.width;
+    review.height = captureCanvas.height;
+    review.getContext("2d").drawImage(captureCanvas,0,0);
+
+    capturedCameraBlob = await new Promise(resolve=>
+      captureCanvas.toBlob(resolve,"image/jpeg",0.92)
+    );
+    if(!capturedCameraBlob) throw new Error("撮影画像を作成できませんでした。");
+
+    $("cameraLive").classList.add("hidden");
+    $("cameraReview").classList.remove("hidden");
+    if(cameraStream){
+      cameraStream.getTracks().forEach(track=>track.enabled=false);
+    }
+    setStatus("撮影しました。まだ診断していません。画像を確認してください。");
+  }catch(err){
+    console.error(err);
+    alert("撮影エラー："+err.message);
+  }
+}
+
+function retakeGuideFrame(){
+  capturedCameraBlob = null;
+  if(cameraStream){
+    cameraStream.getTracks().forEach(track=>track.enabled=true);
+  }
+  $("cameraReview").classList.add("hidden");
+  $("cameraLive").classList.remove("hidden");
+  setStatus("撮り直しできます。撮影するまでは診断しません。");
+}
+
+async function useGuideCapture(){
+  if(!capturedCameraBlob) return;
+  const file = new File(
+    [capturedCameraBlob],
+    `TurfVision0_${new Date().toISOString().replace(/[:.]/g,"-")}.jpg`,
+    {type:"image/jpeg"}
+  );
+  stopGuideCamera();
+  $("cameraReview").classList.add("hidden");
+  capturedCameraBlob = null;
+  await loadSelectedImageFile(file);
+}
+
+$("startCameraBtn").addEventListener("click", startGuideCamera);
+$("stopCameraBtn").addEventListener("click", ()=>{
+  stopGuideCamera();
+  setStatus("AR撮影ガイドを終了しました。");
+});
+$("captureGuideBtn").addEventListener("click", captureGuideFrame);
+$("retakeBtn").addEventListener("click", retakeGuideFrame);
+$("useCaptureBtn").addEventListener("click", useGuideCapture);
+
+document.addEventListener("visibilitychange", ()=>{
+  if(document.hidden && cameraStream) stopGuideCamera();
+});
+window.addEventListener("pagehide", stopGuideCamera);
+// ===== AR撮影ガイドここまで =====
+
+
 function resetCrop(){
   crop={x:baseCanvas.width*.1,y:baseCanvas.height*.1,w:baseCanvas.width*.8,h:baseCanvas.height*.8};
 }

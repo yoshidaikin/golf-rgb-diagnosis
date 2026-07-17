@@ -1,7 +1,7 @@
 {
-  "name": "ゴルフ場芝生 RGB簡易診断 Ver.0.6.3.1",
-  "short_name": "芝生診断V0631",
-  "start_url": "./?v=0631",
+  "name": "Turf Vision 0｜AR撮影ガイド初号機",
+  "short_name": "Turf Vision 0",
+  "start_url": "./?app=turfvision0-ar-v002",
   "display": "standalone",
   "background_color": "#f5f7f6",
   "theme_color": "#1f4e3d",
@@ -16,5 +16,6 @@
       "sizes": "512x512",
       "type": "image/png"
     }
-  ]
+  ],
+  "description": "撮影前は診断せず、カメラ映像に撮影範囲ガイドを重ねて確認後に解析する芝生健康診断AI初号機"
 }

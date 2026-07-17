@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#1f4e3d">
-  <title>芝生RGB簡易診断</title>
+  <title>Turf Vision 0｜芝生健康診断AI</title>
   <link rel="manifest" href="manifest.json">
   <style>
     :root { --green:#1f4e3d; --light:#eef6f1; --border:#c7d8ce; }
@@ -33,12 +33,46 @@
     .tabs { display:flex; gap:8px; }
     .tabs button { margin:0; }
     #status { padding:10px; border-radius:10px; background:#f1f4f2; margin-top:10px; }
+
+    .mode-switch { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+    .mode-switch button { margin:0; background:#728078; }
+    .mode-switch button.active { background:var(--green); box-shadow:0 0 0 3px rgba(31,78,61,.15); }
+    .camera-stage { position:relative; width:100%; overflow:hidden; border-radius:12px; background:#101713; aspect-ratio:3/4; }
+    .camera-stage video, .camera-stage canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+    .camera-guide { position:absolute; inset:0; pointer-events:none; }
+    .guide-frame { position:absolute; left:8%; top:14%; width:84%; height:67%; border:3px solid #00f08a; border-radius:14px; box-shadow:0 0 0 9999px rgba(0,0,0,.22); }
+    .guide-cross-v, .guide-cross-h { position:absolute; background:rgba(255,255,255,.65); }
+    .guide-cross-v { top:14%; bottom:19%; left:50%; width:1px; }
+    .guide-cross-h { left:8%; right:8%; top:47.5%; height:1px; }
+    .guide-level { position:absolute; left:25%; right:25%; top:9%; height:5px; border-radius:99px; background:rgba(255,255,255,.25); overflow:hidden; }
+    .guide-level span { display:block; width:50%; height:100%; margin:auto; background:#00f08a; border-radius:99px; }
+    .guide-label { position:absolute; left:50%; transform:translateX(-50%); bottom:7%; max-width:86%; padding:7px 11px; border-radius:999px; background:rgba(0,0,0,.64); color:#fff; font-size:13px; font-weight:700; text-align:center; white-space:nowrap; }
+    .camera-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+    .camera-actions button { margin:0; }
+    .capture-button { background:#0f7652 !important; min-height:54px; font-size:18px; }
+    .permission-note { padding:10px; border-radius:10px; background:#fff8df; color:#665516; font-size:13px; line-height:1.55; margin-top:10px; }
+
     @media (max-width:600px){ .grid2,.result{grid-template-columns:1fr;} }
   </style>
 </head>
 <body>
-<header><h1>ゴルフ場芝生 RGB簡易診断 Ver.0.6.3.1 キャッシュ更新対応版</h1></header>
+<header>
+  <div style="display:flex;align-items:center;gap:12px">
+    <img src="icon-192.png" alt="Turf Vision 0" style="width:50px;height:50px;border-radius:12px">
+    <div>
+      <h1 style="margin:0">Turf Vision 0</h1>
+      <div style="font-size:13px;opacity:.9;margin-top:2px">芝生健康診断AI・AR撮影ガイド初号機 Ver.0.0.2</div>
+    </div>
+  </div>
+</header>
 <main>
+  <section style="border-left:5px solid #1f4e3d">
+    <h2 style="margin-bottom:6px">初号機デモ</h2>
+    <p class="hint" style="font-size:14px;margin:0">
+      スマホ画像から芝生の色ムラ・低活性候補・乾燥傾向を見える化する補助ツールです。
+      病害名や原因を確定するものではなく、現地確認する場所を早く見つける目的で使用します。
+    </p>
+  </section>
   <section>
     <h2>1. 保存情報（任意）</h2>
     <label style="display:flex;align-items:center;gap:8px;font-weight:700">
@@ -79,17 +113,57 @@
 
   <section>
     <h2>3. 撮影または画像を選択</h2>
-    <div class="grid2">
-      <div>
-        <label for="file">フォト・ファイルから選択</label>
-        <input id="file" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+
+    <div class="mode-switch">
+      <button id="selectModeBtn" type="button" class="active">フォト・ファイル</button>
+      <button id="arModeBtn" type="button">AR撮影ガイド</button>
+    </div>
+
+    <div id="selectModePanel">
+      <label for="file">フォト・ファイルから選択</label>
+      <input id="file" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+      <p class="hint">Googleフォト、Files、ドキュメント、端末内画像から選択できます。</p>
+    </div>
+
+    <div id="arModePanel" class="hidden">
+      <div id="cameraIdle">
+        <button id="startCameraBtn" type="button">AR撮影ガイドを開始</button>
+        <div class="permission-note">
+          初回だけカメラの使用許可が表示されます。撮影ボタンを押すまでは画像を保存せず、診断も行いません。
+        </div>
       </div>
-      <div>
-        <label for="cameraFile">カメラで撮影</label>
-        <input id="cameraFile" type="file" accept="image/*" capture="environment">
+
+      <div id="cameraLive" class="hidden">
+        <div class="camera-stage">
+          <video id="cameraVideo" autoplay playsinline muted></video>
+          <div class="camera-guide">
+            <div class="guide-level"><span></span></div>
+            <div class="guide-frame"></div>
+            <div class="guide-cross-v"></div>
+            <div class="guide-cross-h"></div>
+            <div class="guide-label">緑の枠内に診断したい芝面を入れてください</div>
+          </div>
+        </div>
+        <div class="camera-actions">
+          <button id="stopCameraBtn" type="button" class="gray">カメラを閉じる</button>
+          <button id="captureGuideBtn" type="button" class="capture-button">撮影</button>
+        </div>
+        <p class="hint">影、人、カート、旗竿などをできるだけ枠外にし、スマホを安定させて撮影してください。</p>
+      </div>
+
+      <div id="cameraReview" class="hidden">
+        <div class="camera-stage">
+          <canvas id="cameraReviewCanvas"></canvas>
+        </div>
+        <div class="camera-actions">
+          <button id="retakeBtn" type="button" class="gray">撮り直す</button>
+          <button id="useCaptureBtn" type="button">この画像を使用</button>
+        </div>
+        <p class="hint">「この画像を使用」を押した後に解析範囲へ進みます。この確認画面では診断しません。</p>
       </div>
     </div>
-    <p class="hint">左はGoogleフォト・Files・ドキュメント等から選択、右はその場でカメラ撮影します。画像は端末内で縮小・解析し、外部へ送信しません。</p>
+
+    <canvas id="cameraCaptureCanvas" class="hidden"></canvas>
     <div id="status">画像を選択してください。</div>
   </section>
 
