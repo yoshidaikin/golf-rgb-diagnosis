@@ -1,7 +1,7 @@
 {
-  "name": "ゴルフ場芝生 RGB簡易診断 Ver.0.6.3",
-  "short_name": "芝生診断V063",
-  "start_url": "./",
+  "name": "ゴルフ場芝生 RGB簡易診断 Ver.0.6.3.1",
+  "short_name": "芝生診断V0631",
+  "start_url": "./?v=0631",
   "display": "standalone",
   "background_color": "#f5f7f6",
   "theme_color": "#1f4e3d",
