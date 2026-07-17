@@ -1,0 +1,20 @@
+{
+  "name": "ゴルフ場芝生 RGB簡易診断 Ver.0.6.2",
+  "short_name": "芝生診断V062",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f5f7f6",
+  "theme_color": "#1f4e3d",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
