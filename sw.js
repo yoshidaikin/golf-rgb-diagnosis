@@ -1,4 +1,4 @@
-const CACHE = "turf-vision-0-ar-v002";
+const CACHE = "turf-rgb-v0631";
 const ASSETS = [
   "./",
   "./index.html",
