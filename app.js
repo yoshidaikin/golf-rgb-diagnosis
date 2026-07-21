@@ -29,30 +29,22 @@ function installGradientControls(){
     box.style.borderRadius="10px";
     box.style.background="#f7faf8";
     box.innerHTML=`
-      <div style="font-weight:700;margin-bottom:8px">解析画像の表示方法</div>
-      <label style="display:block;margin-bottom:8px">表示方式
+      <div style="font-weight:700;margin-bottom:8px">解析画像の表示</div>
+      <label style="display:block;margin-bottom:8px">表示方法
         <select id="mapMode" style="width:100%;margin-top:4px;padding:8px">
-          <option value="simple">従来の低活性候補表示</option>
-          <option value="gradient">数値グラデーション表示</option>
+          <option value="simple" selected>通常診断（おすすめ）</option>
+          <option value="gradient">詳細グラデーション</option>
         </select>
       </label>
-      <label id="gradientMetricWrap" style="display:none">グラデーション対象
+      <label id="gradientMetricWrap" style="display:none">詳細表示する指数
         <select id="gradientMetric" style="width:100%;margin-top:4px;padding:8px">
-          <option value="vari" selected>VARI（管理比較向け）</option>
-          <option value="gli">GLI</option>
-          <option value="exg">ExG</option>
-          <option value="score">総合活性スコア（画像内相対）</option>
+          <option value="vari" selected>VARI（おすすめ）</option>
+          <option value="score">総合活性スコア</option>
           <option value="gli">GLI</option>
           <option value="exg">ExG</option>
         </select>
       </label>
-      <label id="gradientScaleWrap" style="display:none;margin-top:8px">色の基準
-        <select id="gradientScale" style="width:100%;margin-top:4px;padding:8px">
-          <option value="fixed">芝種別の固定基準（比較向け・おすすめ）</option>
-          <option value="relative">画像内相対基準（細部確認向け）</option>
-        </select>
-      </label>
-      <div id="gradientHelp" style="font-size:12px;line-height:1.5;margin-top:8px;color:#455a50">固定基準では、別の日の画像とも同じ色基準で比べられます。赤系ほど低く、青系ほど高い値です。</div>`;
+      <div id="gradientHelp" style="font-size:12px;line-height:1.5;margin-top:8px;color:#455a50">通常診断は、低活性候補だけを分かりやすく表示します。</div>`;
     host.appendChild(box);
   }
   const resultSection=$("resultSection");
@@ -64,7 +56,7 @@ function installGradientControls(){
     legend.style.padding="10px";
     legend.style.borderRadius="10px";
     legend.style.background="#f7faf8";
-    legend.innerHTML=`<div id="gradientLegendTitle" style="font-weight:700;margin-bottom:6px">総合活性スコア</div><div style="height:18px;border-radius:8px;background:linear-gradient(90deg,#d7191c,#f46d43,#fdae61,#ffff66,#66bd63,#20b2aa,#2c7bb6)"></div><div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px"><span id="gradientMin">低い</span><span>中間</span><span id="gradientMax">高い</span></div>`;
+    legend.innerHTML=`<div id="gradientLegendTitle" style="font-weight:700;margin-bottom:6px">VARI</div><div style="height:18px;border-radius:8px;background:linear-gradient(90deg,#d7191c,#f46d43,#fdae61,#ffff66,#78c679,#31a354,#1f78b4)"></div><div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px"><span id="gradientMin">低い</span><span>標準</span><span id="gradientMax">高い</span></div>`;
     const canvas=$("resultCanvas");
     canvas?.parentElement?.insertBefore(legend,canvas);
   }
@@ -72,26 +64,24 @@ function installGradientControls(){
   mode?.addEventListener("change",()=>{
     const grad=mode.value==="gradient";
     const wrap=$("gradientMetricWrap"); if(wrap) wrap.style.display=grad?"block":"none";
-    const scaleWrap=$("gradientScaleWrap"); if(scaleWrap) scaleWrap.style.display=grad?"block":"none";
-    if(lastAnalysisData) renderAnalysisView();
-  });
-  metric?.addEventListener("change",()=>{
-    const scale=$("gradientScale");
-    if(scale && metric.value==="score") scale.value="relative";
     updateGradientHelp();
     if(lastAnalysisData) renderAnalysisView();
   });
-  $("gradientScale")?.addEventListener("change",()=>{updateGradientHelp();if(lastAnalysisData) renderAnalysisView();});
+  metric?.addEventListener("change",()=>{
+    updateGradientHelp();
+    if(lastAnalysisData) renderAnalysisView();
+  });
   updateGradientHelp();
 }
 function updateGradientHelp(){
+  const mode=$("mapMode")?.value||"simple";
   const metric=$("gradientMetric")?.value||"vari";
-  const scale=$("gradientScale")?.value||"fixed";
   const help=$("gradientHelp");
   if(!help)return;
-  if(metric==="score") help.textContent="総合活性スコアは画像内で正規化されるため、画像内相対表示になります。日付をまたぐ比較にはVARIがおすすめです。";
-  else if(scale==="fixed") help.textContent="芝種別の固定基準です。別の日の画像とも同じ色基準で比較できます。赤系ほど低く、青系ほど高い値です。";
-  else help.textContent="画像内の5～95％範囲を広げて表示します。細かなムラは見やすい一方、別画像との色比較には向きません。";
+  if(mode!=="gradient") help.textContent="通常診断は、低活性候補だけを分かりやすく表示します。";
+  else if(metric==="vari") help.textContent="VARIは、同じ芝種・同じ撮影条件での管理比較におすすめです。色基準は芝種から自動設定します。";
+  else if(metric==="score") help.textContent="総合活性スコアは、この画像内のムラを詳しく見るための相対表示です。";
+  else help.textContent="詳細確認用の指数です。通常はVARIをおすすめします。色基準は自動設定されます。";
 }
 installGradientControls();
 
@@ -112,7 +102,7 @@ function overlayRgb(){
 
 function gradientRgb(t){
   t=clamp(t,0,1);
-  const stops=[[0,[215,25,28]],[.18,[244,109,67]],[.36,[253,174,97]],[.50,[255,255,102]],[.68,[102,189,99]],[.84,[32,178,170]],[1,[44,123,182]]];
+  const stops=[[0,[215,25,28]],[.20,[244,109,67]],[.40,[253,174,97]],[.55,[255,255,102]],[.68,[120,198,121]],[.88,[49,163,84]],[1,[31,120,180]]];
   for(let i=1;i<stops.length;i++){
     if(t<=stops[i][0]){
       const [p0,c0]=stops[i-1], [p1,c1]=stops[i], u=(t-p0)/(p1-p0||1);
@@ -127,8 +117,7 @@ const FIXED_GRADIENT_RANGES = {
   "ティフトン・バミューダ": {vari:[-0.035,0.095], gli:[0.010,0.145], exg:[0.030,0.195]}
 };
 function getGradientRange(metric,arr,analysis,n){
-  const requested=$("gradientScale")?.value||"fixed";
-  if(metric!=="score" && requested==="fixed"){
+  if(metric!=="score"){
     const species=$("species")?.value||"ベント芝";
     const range=FIXED_GRADIENT_RANGES[species]?.[metric];
     if(range) return {min:range[0],max:range[1],scale:"fixed"};
@@ -473,7 +462,7 @@ async function makeReportCanvas(){
   ctx.font="bold 38px 'Yu Gothic','Meiryo',sans-serif";
   ctx.fillText("ゴルフ場芝生 RGB簡易診断・相談用レポート",margin,52);
   ctx.font="22px 'Yu Gothic','Meiryo',sans-serif";
-  ctx.fillText("Ver.0.6.4",margin,88);
+  ctx.fillText("Ver.0.6.5",margin,88);
 
   const course=$("useMeta").checked?($("courseName").value||"－"):"－";
   const date=$("useMeta").checked?($("shootDate").value||"－"):"－";
@@ -551,8 +540,8 @@ async function makeReportCanvas(){
     const lx=margin+imageW+imageGap, ly=y, lw=imageW, lh=18;
     const grad=ctx.createLinearGradient(lx,0,lx+lw,0);
     grad.addColorStop(0,"#d7191c"); grad.addColorStop(.18,"#f46d43");
-    grad.addColorStop(.36,"#fdae61"); grad.addColorStop(.50,"#ffff66");
-    grad.addColorStop(.68,"#66bd63"); grad.addColorStop(.84,"#20b2aa"); grad.addColorStop(1,"#2c7bb6");
+    grad.addColorStop(.40,"#fdae61"); grad.addColorStop(.55,"#ffff66");
+    grad.addColorStop(.68,"#78c679"); grad.addColorStop(.88,"#31a354"); grad.addColorStop(1,"#1f78b4");
     ctx.fillStyle=grad; ctx.fillRect(lx,ly,lw,lh);
     ctx.fillStyle="#34413b"; ctx.font="16px 'Yu Gothic','Meiryo',sans-serif";
     const digits=reportMetric==="score"?2:3;
