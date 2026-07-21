@@ -10,10 +10,65 @@ let img = null, baseCanvas = document.createElement("canvas");
 let crop = {x:0,y:0,w:0,h:0}, drag=null;
 let resultOriginal=null, resultOverlay=null;
 let lastMetrics=null;
+let lastAnalysisData=null;
 let currentSourceFileName="";
 
 $("useMeta").addEventListener("change", ()=>{$("metaFields").classList.toggle("hidden", !$("useMeta").checked);});
 $("shootDate").value = new Date().toISOString().slice(0,10);
+
+
+function installGradientControls(){
+  if($("mapMode")) return;
+  const colorSelect=$("overlayColor");
+  if(colorSelect){
+    const host=colorSelect.closest("label")?.parentElement || colorSelect.parentElement;
+    const box=document.createElement("div");
+    box.style.marginTop="12px";
+    box.style.padding="12px";
+    box.style.border="1px solid #cfd8d3";
+    box.style.borderRadius="10px";
+    box.style.background="#f7faf8";
+    box.innerHTML=`
+      <div style="font-weight:700;margin-bottom:8px">解析画像の表示方法</div>
+      <label style="display:block;margin-bottom:8px">表示方式
+        <select id="mapMode" style="width:100%;margin-top:4px;padding:8px">
+          <option value="simple">従来の低活性候補表示</option>
+          <option value="gradient">数値グラデーション表示</option>
+        </select>
+      </label>
+      <label id="gradientMetricWrap" style="display:none">グラデーション対象
+        <select id="gradientMetric" style="width:100%;margin-top:4px;padding:8px">
+          <option value="score">総合活性スコア</option>
+          <option value="vari">VARI</option>
+          <option value="gli">GLI</option>
+          <option value="exg">ExG</option>
+        </select>
+      </label>
+      <div style="font-size:12px;line-height:1.5;margin-top:8px;color:#455a50">赤系ほど低く、青系ほど高い値です。画像内の5～95％範囲を使って見やすく表示します。</div>`;
+    host.appendChild(box);
+  }
+  const resultSection=$("resultSection");
+  if(resultSection && !$("gradientLegend")){
+    const legend=document.createElement("div");
+    legend.id="gradientLegend";
+    legend.style.display="none";
+    legend.style.margin="12px 0";
+    legend.style.padding="10px";
+    legend.style.borderRadius="10px";
+    legend.style.background="#f7faf8";
+    legend.innerHTML=`<div id="gradientLegendTitle" style="font-weight:700;margin-bottom:6px">総合活性スコア</div><div style="height:18px;border-radius:8px;background:linear-gradient(90deg,#d7191c,#f46d43,#fdae61,#ffff66,#66bd63,#20b2aa,#2c7bb6)"></div><div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px"><span id="gradientMin">低い</span><span>中間</span><span id="gradientMax">高い</span></div>`;
+    const canvas=$("resultCanvas");
+    canvas?.parentElement?.insertBefore(legend,canvas);
+  }
+  const mode=$("mapMode"), metric=$("gradientMetric");
+  mode?.addEventListener("change",()=>{
+    const grad=mode.value==="gradient";
+    const wrap=$("gradientMetricWrap"); if(wrap) wrap.style.display=grad?"block":"none";
+    if(lastAnalysisData) renderAnalysisView();
+  });
+  metric?.addEventListener("change",()=>{if(lastAnalysisData) renderAnalysisView();});
+}
+installGradientControls();
 
 function safeName(v){return String(v||"").trim().replace(/[\\/:*?"<>|]/g,"_").replace(/\s+/g,"_").slice(0,80);}
 function buildSaveName(){
@@ -28,6 +83,55 @@ function buildSaveName(){
 }
 function overlayRgb(){
   return {amber:[255,140,0],yellow:[255,215,0],magenta:[180,0,180],red:[255,0,0]}[$("overlayColor").value]||[255,140,0];
+}
+
+function gradientRgb(t){
+  t=clamp(t,0,1);
+  const stops=[[0,[215,25,28]],[.18,[244,109,67]],[.36,[253,174,97]],[.50,[255,255,102]],[.68,[102,189,99]],[.84,[32,178,170]],[1,[44,123,182]]];
+  for(let i=1;i<stops.length;i++){
+    if(t<=stops[i][0]){
+      const [p0,c0]=stops[i-1], [p1,c1]=stops[i], u=(t-p0)/(p1-p0||1);
+      return c0.map((v,k)=>Math.round(v+(c1[k]-v)*u));
+    }
+  }
+  return stops[stops.length-1][1];
+}
+function makeGradientOverlay(metric){
+  if(!lastAnalysisData || !resultOriginal) return null;
+  const {w,h,n,analysis,vegetation,shadow,sand,score,vari,gli,exg}=lastAnalysisData;
+  const arr={score,vari,gli,exg}[metric]||score;
+  const vals=[]; for(let i=0;i<n;i++) if(analysis[i]) vals.push(arr[i]);
+  const p5=percentile(vals,5), p95=percentile(vals,95), den=(p95-p5)||1;
+  const out=new ImageData(new Uint8ClampedArray(resultOriginal.data),w,h);
+  for(let i=0,j=0;i<n;i++,j+=4){
+    if(!vegetation[i]){out.data[j]*=.55;out.data[j+1]*=.55;out.data[j+2]*=.55;continue;}
+    if(shadow[i]){out.data[j]=245;out.data[j+1]=245;out.data[j+2]=245;continue;}
+    if(sand[i]){out.data[j]=255;out.data[j+1]=220;out.data[j+2]=80;continue;}
+    if(analysis[i]){
+      const c=gradientRgb((arr[i]-p5)/den), alpha=.68;
+      out.data[j]=Math.round(out.data[j]*(1-alpha)+c[0]*alpha);
+      out.data[j+1]=Math.round(out.data[j+1]*(1-alpha)+c[1]*alpha);
+      out.data[j+2]=Math.round(out.data[j+2]*(1-alpha)+c[2]*alpha);
+    }
+  }
+  return {image:out,min:p5,max:p95};
+}
+function renderAnalysisView(){
+  if(!resultOriginal) return;
+  const rc=$("resultCanvas"), mode=$("mapMode")?.value||"simple";
+  if(mode==="gradient"){
+    const metric=$("gradientMetric")?.value||"score", g=makeGradientOverlay(metric);
+    if(g){rc.getContext("2d").putImageData(g.image,0,0);}
+    const names={score:"総合活性スコア",vari:"VARI",gli:"GLI",exg:"ExG"};
+    const legend=$("gradientLegend"); if(legend) legend.style.display="block";
+    if($("gradientLegendTitle")) $("gradientLegendTitle").textContent=names[metric]+"（画像内相対表示）";
+    const digits=metric==="score"?2:3;
+    if($("gradientMin")) $("gradientMin").textContent=`低い ${g.min.toFixed(digits)}`;
+    if($("gradientMax")) $("gradientMax").textContent=`高い ${g.max.toFixed(digits)}`;
+  }else{
+    rc.getContext("2d").putImageData(resultOverlay,0,0);
+    const legend=$("gradientLegend"); if(legend) legend.style.display="none";
+  }
 }
 
 function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
@@ -252,6 +356,7 @@ function runAnalysis(){
   }else if((cover < 78 || uniform < 55) && grade==="A"){
     grade="B"; gradeText="要観察"; gradeColor="#9a7b00";
   }
+  lastAnalysisData={w,h,n,analysis,vegetation,shadow,sand,score,vari,gli,exg};
   resultOriginal=ctx.getImageData(0,0,w,h);
   resultOverlay=new ImageData(new Uint8ClampedArray(resultOriginal.data),w,h);
   for(let i=0,j=0;i<n;i++,j+=4){
@@ -287,12 +392,12 @@ function runAnalysis(){
   $("resultComment").textContent=comment;
   lastMetrics={grade,gradeText,lowRate,uniform,cover,variMean,gliMean,dryIndex,dryStage};
   $("teacherSection").classList.remove("hidden");
-  const rc=$("resultCanvas");rc.width=w;rc.height=h;rc.getContext("2d").putImageData(resultOverlay,0,0);
+  const rc=$("resultCanvas");rc.width=w;rc.height=h;renderAnalysisView();
   $("resultSection").classList.remove("hidden");$("resultSection").scrollIntoView({behavior:"smooth"});
   setStatus("診断が完了しました。");$("analyzeBtn").disabled=false;
 }
 $("showOriginal").onclick=()=>{if(resultOriginal)$("resultCanvas").getContext("2d").putImageData(resultOriginal,0,0)};
-$("showOverlay").onclick=()=>{if(resultOverlay)$("resultCanvas").getContext("2d").putImageData(resultOverlay,0,0)};
+$("showOverlay").onclick=()=>{if(resultOverlay)renderAnalysisView()};
 
 function wrapText(ctx,text,x,y,maxWidth,lineHeight){
   let line="", yy=y;
