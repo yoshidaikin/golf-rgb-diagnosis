@@ -33,10 +33,11 @@ function installGradientControls(){
       <label style="display:block;margin-bottom:8px">表示方法
         <select id="mapMode" style="width:100%;margin-top:4px;padding:8px">
           <option value="simple" selected>通常診断（おすすめ）</option>
-          <option value="gradient">詳細グラデーション</option>
+          <option value="alert">異常強調（弱い場所を色表示）</option>
+          <option value="research">研究表示（指数を詳しく確認）</option>
         </select>
       </label>
-      <label id="gradientMetricWrap" style="display:none">詳細表示する指数
+      <label id="gradientMetricWrap" style="display:none">研究表示する指数
         <select id="gradientMetric" style="width:100%;margin-top:4px;padding:8px">
           <option value="vari" selected>VARI（おすすめ）</option>
           <option value="score">総合活性スコア</option>
@@ -62,8 +63,8 @@ function installGradientControls(){
   }
   const mode=$("mapMode"), metric=$("gradientMetric");
   mode?.addEventListener("change",()=>{
-    const grad=mode.value==="gradient";
-    const wrap=$("gradientMetricWrap"); if(wrap) wrap.style.display=grad?"block":"none";
+    const research=mode.value==="research";
+    const wrap=$("gradientMetricWrap"); if(wrap) wrap.style.display=research?"block":"none";
     updateGradientHelp();
     if(lastAnalysisData) renderAnalysisView();
   });
@@ -78,10 +79,11 @@ function updateGradientHelp(){
   const metric=$("gradientMetric")?.value||"vari";
   const help=$("gradientHelp");
   if(!help)return;
-  if(mode!=="gradient") help.textContent="通常診断は、低活性候補だけを分かりやすく表示します。";
-  else if(metric==="vari") help.textContent="VARIは、同じ芝種・同じ撮影条件での管理比較におすすめです。色基準は芝種から自動設定します。";
-  else if(metric==="score") help.textContent="総合活性スコアは、この画像内のムラを詳しく見るための相対表示です。";
-  else help.textContent="詳細確認用の指数です。通常はVARIをおすすめします。色基準は自動設定されます。";
+  if(mode==="simple") help.textContent="通常診断は、低活性候補だけを元画像の上に控えめに表示します。";
+  else if(mode==="alert") help.textContent="異常強調は、良好部分を緑、弱い候補を黄・オレンジ・赤で表示します。現場確認におすすめです。";
+  else if(metric==="vari") help.textContent="VARIを固定基準で細かく確認します。同じ芝種・同じ撮影条件での比較向けです。";
+  else if(metric==="score") help.textContent="総合活性スコアは、この画像内の細かなムラを見る相対表示です。";
+  else help.textContent="GLI・ExGは研究確認用です。通常の管理ではVARIまたは異常強調をおすすめします。";
 }
 installGradientControls();
 
@@ -145,10 +147,50 @@ function makeGradientOverlay(metric){
   }
   return {image:out,min:p5,max:p95,scale:range.scale};
 }
+
+function alertRgb(t){
+  t=clamp(t,0,1);
+  const stops=[[0,[210,35,35]],[.22,[245,120,45]],[.40,[250,205,65]],[.55,[190,215,80]],[.68,[70,170,85]],[1,[20,115,65]]];
+  for(let i=1;i<stops.length;i++){
+    if(t<=stops[i][0]){
+      const [p0,c0]=stops[i-1], [p1,c1]=stops[i], u=(t-p0)/(p1-p0||1);
+      return c0.map((v,k)=>Math.round(v+(c1[k]-v)*u));
+    }
+  }
+  return stops[stops.length-1][1];
+}
+function makeAlertOverlay(){
+  if(!lastAnalysisData || !resultOriginal) return null;
+  const {w,h,n,analysis,vegetation,shadow,sand,vari}=lastAnalysisData;
+  const species=$("species")?.value||"ベント芝";
+  const range=FIXED_GRADIENT_RANGES[species]?.vari || [0.015,0.145];
+  const den=(range[1]-range[0])||1;
+  const out=new ImageData(new Uint8ClampedArray(resultOriginal.data),w,h);
+  for(let i=0,j=0;i<n;i++,j+=4){
+    if(!vegetation[i]){out.data[j]*=.72;out.data[j+1]*=.72;out.data[j+2]*=.72;continue;}
+    if(shadow[i]) continue;
+    if(sand[i]){out.data[j]=255;out.data[j+1]=220;out.data[j+2]=80;continue;}
+    if(analysis[i]){
+      const c=alertRgb((vari[i]-range[0])/den), alpha=.55;
+      out.data[j]=Math.round(out.data[j]*(1-alpha)+c[0]*alpha);
+      out.data[j+1]=Math.round(out.data[j+1]*(1-alpha)+c[1]*alpha);
+      out.data[j+2]=Math.round(out.data[j+2]*(1-alpha)+c[2]*alpha);
+    }
+  }
+  return {image:out,min:range[0],max:range[1],scale:"fixed"};
+}
+
 function renderAnalysisView(){
   if(!resultOriginal) return;
   const rc=$("resultCanvas"), mode=$("mapMode")?.value||"simple";
-  if(mode==="gradient"){
+  if(mode==="alert"){
+    const g=makeAlertOverlay();
+    if(g) rc.getContext("2d").putImageData(g.image,0,0);
+    const legend=$("gradientLegend"); if(legend) legend.style.display="block";
+    if($("gradientLegendTitle")) $("gradientLegendTitle").textContent="異常強調（VARI・芝種別基準）";
+    if($("gradientMin")) $("gradientMin").textContent="注意";
+    if($("gradientMax")) $("gradientMax").textContent="良好";
+  }else if(mode==="research"){
     const metric=$("gradientMetric")?.value||"vari", g=makeGradientOverlay(metric);
     if(g){rc.getContext("2d").putImageData(g.image,0,0);}
     const names={score:"総合活性スコア",vari:"VARI",gli:"GLI",exg:"ExG"};
@@ -462,7 +504,7 @@ async function makeReportCanvas(){
   ctx.font="bold 38px 'Yu Gothic','Meiryo',sans-serif";
   ctx.fillText("ゴルフ場芝生 RGB簡易診断・相談用レポート",margin,52);
   ctx.font="22px 'Yu Gothic','Meiryo',sans-serif";
-  ctx.fillText("Ver.0.6.5",margin,88);
+  ctx.fillText("Ver.0.6.6",margin,88);
 
   const course=$("useMeta").checked?($("courseName").value||"－"):"－";
   const date=$("useMeta").checked?($("shootDate").value||"－"):"－";
@@ -508,7 +550,11 @@ async function makeReportCanvas(){
   const reportMode=$("mapMode")?.value||"simple";
   const reportMetric=$("gradientMetric")?.value||"vari";
   let reportGradient=null;
-  if(reportMode==="gradient"){
+  if(reportMode==="alert"){
+    reportGradient=makeAlertOverlay();
+    if(reportGradient) r.getContext("2d").putImageData(reportGradient.image,0,0);
+    else r.getContext("2d").putImageData(resultOverlay,0,0);
+  }else if(reportMode==="research"){
     reportGradient=makeGradientOverlay(reportMetric);
     if(reportGradient) r.getContext("2d").putImageData(reportGradient.image,0,0);
     else r.getContext("2d").putImageData(resultOverlay,0,0);
@@ -532,11 +578,11 @@ async function makeReportCanvas(){
   ctx.fillText("元画像",margin,y);
   const metricNames={score:"総合活性スコア",vari:"VARI",gli:"GLI",exg:"ExG"};
   const scaleLabel=reportGradient?.scale==="fixed"?"固定基準":"画像内相対";
-  const analysisTitle=reportMode==="gradient" ? `数値グラデーション（${metricNames[reportMetric]}・${scaleLabel}）` : "低活性候補表示";
+  const analysisTitle=reportMode==="alert" ? "異常強調表示（注意→良好）" : reportMode==="research" ? `研究表示（${metricNames[reportMetric]}・${scaleLabel}）` : "低活性候補表示";
   ctx.fillText(analysisTitle,margin+imageW+imageGap,y);
   y+=18;
 
-  if(reportMode==="gradient" && reportGradient){
+  if((reportMode==="alert" || reportMode==="research") && reportGradient){
     const lx=margin+imageW+imageGap, ly=y, lw=imageW, lh=18;
     const grad=ctx.createLinearGradient(lx,0,lx+lw,0);
     grad.addColorStop(0,"#d7191c"); grad.addColorStop(.18,"#f46d43");
@@ -545,8 +591,9 @@ async function makeReportCanvas(){
     ctx.fillStyle=grad; ctx.fillRect(lx,ly,lw,lh);
     ctx.fillStyle="#34413b"; ctx.font="16px 'Yu Gothic','Meiryo',sans-serif";
     const digits=reportMetric==="score"?2:3;
-    ctx.fillText(`低い ${reportGradient.min.toFixed(digits)}`,lx,ly+38);
-    const highText=`高い ${reportGradient.max.toFixed(digits)}`;
+    const lowText=reportMode==="alert"?"注意":`低い ${reportGradient.min.toFixed(digits)}`;
+    ctx.fillText(lowText,lx,ly+38);
+    const highText=reportMode==="alert"?"良好":`高い ${reportGradient.max.toFixed(digits)}`;
     ctx.fillText(highText,lx+lw-ctx.measureText(highText).width,ly+38);
     y+=46;
   }

@@ -1,4 +1,4 @@
-const CACHE = "turf-rgb-v065-simple-ui";
+const CACHE = "turf-rgb-v066-field-modes";
 const ASSETS = ["./", "./index.html", "./app.js", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", event => {
