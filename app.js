@@ -80,7 +80,7 @@ function updateGradientHelp(){
   const help=$("gradientHelp");
   if(!help)return;
   if(mode==="simple") help.textContent="通常診断は、低活性候補だけを元画像の上に控えめに表示します。";
-  else if(mode==="alert") help.textContent="異常強調は、良好部分を緑、弱い候補を黄・オレンジ・赤で表示します。現場確認におすすめです。";
+  else if(mode==="alert") help.textContent="異常強調は、元画像を残したまま、弱い候補だけを黄・オレンジ・赤で半透明表示します。現場確認におすすめです。";
   else if(metric==="vari") help.textContent="VARIを固定基準で細かく確認します。同じ芝種・同じ撮影条件での比較向けです。";
   else if(metric==="score") help.textContent="総合活性スコアは、この画像内の細かなムラを見る相対表示です。";
   else help.textContent="GLI・ExGは研究確認用です。通常の管理ではVARIまたは異常強調をおすすめします。";
@@ -161,17 +161,22 @@ function alertRgb(t){
 }
 function makeAlertOverlay(){
   if(!lastAnalysisData || !resultOriginal) return null;
-  const {w,h,n,analysis,vegetation,shadow,sand,vari}=lastAnalysisData;
+  const {w,h,n,analysis,vegetation,shadow,sand,vari,patternDensity}=lastAnalysisData;
   const species=$("species")?.value||"ベント芝";
   const range=FIXED_GRADIENT_RANGES[species]?.vari || [0.015,0.145];
   const den=(range[1]-range[0])||1;
   const out=new ImageData(new Uint8ClampedArray(resultOriginal.data),w,h);
   for(let i=0,j=0;i<n;i++,j+=4){
-    if(!vegetation[i]){out.data[j]*=.72;out.data[j+1]*=.72;out.data[j+2]*=.72;continue;}
+    if(!vegetation[i]){out.data[j]*=.82;out.data[j+1]*=.82;out.data[j+2]*=.82;continue;}
     if(shadow[i]) continue;
     if(sand[i]){out.data[j]=255;out.data[j+1]=220;out.data[j+2]=80;continue;}
-    if(analysis[i]){
-      const c=alertRgb((vari[i]-range[0])/den), alpha=.55;
+    if(!analysis[i]) continue;
+    const t=clamp((vari[i]-range[0])/den,0,1);
+    const bermudaPattern = species==="ティフトン・バミューダ" && patternDensity && patternDensity[i]>.18;
+    if(t<.62 || bermudaPattern){
+      const severity=bermudaPattern?Math.max(.45,1-t):(1-t/.62);
+      const c=severity>.72?[210,35,35]:severity>.38?[245,120,45]:[250,205,65];
+      const alpha=.18+.48*clamp(severity,0,1);
       out.data[j]=Math.round(out.data[j]*(1-alpha)+c[0]*alpha);
       out.data[j+1]=Math.round(out.data[j+1]*(1-alpha)+c[1]*alpha);
       out.data[j+2]=Math.round(out.data[j+2]*(1-alpha)+c[2]*alpha);
@@ -380,6 +385,22 @@ function runAnalysis(){
     let isLow=species==="ベント芝"?(votes[i]>=2&&score[i]<=th):(score[i]<=th&&(votes[i]>=1||score[i]<th*.85));
     if(isLow){low[i]=1;lowCount++}
   }
+
+  // ティフトン・バミューダのヒョウ柄や白化斑を捉える試験的な模様解析。
+  // 点在する微小ノイズではなく、低活性候補が局所的にまとまる度合いを評価する。
+  const lowFloat=new Float32Array(n);
+  for(let i=0;i<n;i++) lowFloat[i]=low[i]?1:0;
+  const patternRadius=mode==="スマホ近距離撮影"?12:mode==="スマホ中距離撮影"?10:7;
+  const patternDensity=gaussianBlur(lowFloat,w,h,patternRadius);
+  let patternArea=0,strongPatternArea=0;
+  for(let i=0;i<n;i++) if(analysis[i]){
+    if(patternDensity[i]>.14) patternArea++;
+    if(patternDensity[i]>.30) strongPatternArea++;
+  }
+  const patternAreaRate=patternArea/analysisCount*100;
+  const strongPatternRate=strongPatternArea/analysisCount*100;
+  let patternIndex=clamp(0.62*patternAreaRate+1.35*strongPatternRate,0,100);
+  if(species!=="ティフトン・バミューダ") patternIndex*=0.35;
   const mean=a=>a.reduce((s,x)=>s+x,0)/a.length;
   const sd=a=>{const m=mean(a);return Math.sqrt(a.reduce((s,x)=>s+(x-m)*(x-m),0)/a.length)};
   const variMean=mean(vv), gliMean=mean(gg), exgMean=mean(ee);
@@ -402,12 +423,19 @@ function runAnalysis(){
   }
   dryIndex = clamp(dryIndex,0,100);
 
+  // 芝種別に現場確認用の区分を調整。高麗芝は葉色・芝目による自然な変動を広めに許容する。
   let dryStage;
-  if(dryIndex < 18) dryStage="通常範囲";
-  else if(dryIndex < 32) dryStage="要観察";
-  else if(dryIndex < 48) dryStage="ドライ予兆";
-  else if(dryIndex < 68) dryStage="初期ドライ";
+  const limits = species==="コウライ芝" ? [23,35,52,70] : species==="ティフトン・バミューダ" ? [20,33,50,68] : [18,32,48,68];
+  if(dryIndex < limits[0]) dryStage="通常範囲";
+  else if(dryIndex < limits[1]) dryStage="要観察";
+  else if(dryIndex < limits[2]) dryStage="ドライ予兆";
+  else if(dryIndex < limits[3]) dryStage="初期ドライ";
   else dryStage="ドライ進行";
+
+  let patternStage="通常範囲";
+  if(patternIndex>=42) patternStage="模様反応強い";
+  else if(patternIndex>=25) patternStage="ヒョウ柄・白化疑い";
+  else if(patternIndex>=12) patternStage="模様要観察";
 
   // 管理判定をドライ段階と整合させる
   // 芝種ごとの芝目・刈込方向の影響で均一性だけが下がっても、単独でDにはしない
@@ -421,13 +449,20 @@ function runAnalysis(){
     grade="D"; gradeText="ドライ反応強い"; gradeColor="#c62828";
   }
 
+  // バミューダは平均緑量が高くても、まとまった白化・ヒョウ柄がある場合は別評価する。
+  if(species==="ティフトン・バミューダ"){
+    if(patternIndex>=42){grade="D";gradeText="模様反応強い・要調査";gradeColor="#c62828";}
+    else if(patternIndex>=25 && grade!=="D"){grade="C";gradeText="ヒョウ柄・白化疑い";gradeColor="#d66a00";}
+    else if(patternIndex>=12 && grade==="A"){grade="B";gradeText="模様要観察";gradeColor="#9a7b00";}
+  }
+
   // 補助的な安全側補正
   if(cover < 65 || variMean < -0.08){
     grade="D"; gradeText="ドライ反応強い"; gradeColor="#c62828";
   }else if((cover < 78 || uniform < 55) && grade==="A"){
     grade="B"; gradeText="要観察"; gradeColor="#9a7b00";
   }
-  lastAnalysisData={w,h,n,analysis,vegetation,shadow,sand,score,vari,gli,exg};
+  lastAnalysisData={w,h,n,analysis,vegetation,shadow,sand,score,vari,gli,exg,patternDensity};
   resultOriginal=ctx.getImageData(0,0,w,h);
   resultOverlay=new ImageData(new Uint8ClampedArray(resultOriginal.data),w,h);
   for(let i=0,j=0;i<n;i++,j+=4){
@@ -451,7 +486,9 @@ function runAnalysis(){
   $("gliMean").textContent=gliMean.toFixed(3);
   $("dryIndex").textContent=dryIndex.toFixed(0)+"/100";
   $("dryStage").textContent=dryStage;
-  const comment = dryStage==="通常範囲"
+  const comment = (species==="ティフトン・バミューダ" && patternIndex>=25)
+    ? "ドライ指数だけでは良好に見えても、まとまったヒョウ柄・白化反応が出ています。生理障害、刈込み・散水ムラ、根圏状態を現地確認してください。"
+    : dryStage==="通常範囲"
     ? "現時点では明確なドライ反応は少ない状態です。撮影条件を揃えて定期比較してください。"
     : dryStage==="要観察"
     ? "軽い水分ムラや芝目の影響を含む要観察段階です。散水後の変化を確認してください。"
@@ -461,7 +498,7 @@ function runAnalysis(){
     ? "初期ドライ反応が疑われます。散水だけで戻るか、浸透剤や根圏状態も確認してください。"
     : "ドライ反応が強く出ています。早めの散水対応と根圏・撥水状態の追加確認が必要です。";
   $("resultComment").textContent=comment;
-  lastMetrics={grade,gradeText,lowRate,uniform,cover,variMean,gliMean,dryIndex,dryStage};
+  lastMetrics={grade,gradeText,lowRate,uniform,cover,variMean,gliMean,dryIndex,dryStage,patternIndex,patternStage};
   $("teacherSection").classList.remove("hidden");
   const rc=$("resultCanvas");rc.width=w;rc.height=h;renderAnalysisView();
   $("resultSection").classList.remove("hidden");$("resultSection").scrollIntoView({behavior:"smooth"});
@@ -504,7 +541,7 @@ async function makeReportCanvas(){
   ctx.font="bold 38px 'Yu Gothic','Meiryo',sans-serif";
   ctx.fillText("ゴルフ場芝生 RGB簡易診断・相談用レポート",margin,52);
   ctx.font="22px 'Yu Gothic','Meiryo',sans-serif";
-  ctx.fillText("Ver.0.6.6",margin,88);
+  ctx.fillText("Ver.0.6.7",margin,88);
 
   const course=$("useMeta").checked?($("courseName").value||"－"):"－";
   const date=$("useMeta").checked?($("shootDate").value||"－"):"－";
@@ -537,7 +574,7 @@ async function makeReportCanvas(){
   ctx.fillText(`ドライ段階：${lastMetrics.dryStage}`,metricX1,y+88);
   ctx.fillText(`低活性候補率：${lastMetrics.lowRate.toFixed(1)}%`,metricX2,y+88);
   ctx.fillText(`均一性：${lastMetrics.uniform.toFixed(1)}　芝抽出率：${lastMetrics.cover.toFixed(1)}%`,metricX1,y+130);
-  ctx.fillText(`VARI：${lastMetrics.variMean.toFixed(3)}　GLI：${lastMetrics.gliMean.toFixed(3)}`,metricX2,y+130);
+  ctx.fillText(`VARI：${lastMetrics.variMean.toFixed(3)}　GLI：${lastMetrics.gliMean.toFixed(3)}　模様指数：${lastMetrics.patternIndex.toFixed(0)}`,metricX2,y+130);
   y+=198;
 
   // Prepare source canvases
@@ -578,7 +615,7 @@ async function makeReportCanvas(){
   ctx.fillText("元画像",margin,y);
   const metricNames={score:"総合活性スコア",vari:"VARI",gli:"GLI",exg:"ExG"};
   const scaleLabel=reportGradient?.scale==="fixed"?"固定基準":"画像内相対";
-  const analysisTitle=reportMode==="alert" ? "異常強調表示（注意→良好）" : reportMode==="research" ? `研究表示（${metricNames[reportMetric]}・${scaleLabel}）` : "低活性候補表示";
+  const analysisTitle=reportMode==="alert" ? "異常強調表示（異常部のみ半透明）" : reportMode==="research" ? `研究表示（${metricNames[reportMetric]}・${scaleLabel}）` : "低活性候補表示";
   ctx.fillText(analysisTitle,margin+imageW+imageGap,y);
   y+=18;
 
@@ -783,6 +820,8 @@ $("registerTeacherBtn").addEventListener("click",async()=>{
       gliMean:lastMetrics.gliMean,
       dryIndex:lastMetrics.dryIndex,
       dryStage:lastMetrics.dryStage,
+      patternIndex:lastMetrics.patternIndex,
+      patternStage:lastMetrics.patternStage,
       trueLabel,
       diseaseName:$("diseaseName").value,
       insectName:$("insectName").value,
@@ -804,7 +843,7 @@ $("registerTeacherBtn").addEventListener("click",async()=>{
 $("exportCsvBtn").addEventListener("click",async()=>{
   const rows=await getAllTeacherRecords();
   if(!rows.length){alert("教師データがありません。");return;}
-  const headers=["id","createdAt","courseName","shootDate","targetName","sourceFile","species","mode","topdress","appGrade","appGradeText","lowRate","uniformity","cover","variMean","gliMean","dryIndex","dryStage","trueLabel","diseaseName","insectName","afterWater","confirmedDays","note","hasImage"];
+  const headers=["id","createdAt","courseName","shootDate","targetName","sourceFile","species","mode","topdress","appGrade","appGradeText","lowRate","uniformity","cover","variMean","gliMean","dryIndex","dryStage","patternIndex","patternStage","trueLabel","diseaseName","insectName","afterWater","confirmedDays","note","hasImage"];
   const lines=[headers.join(",")];
   for(const r of rows) lines.push(headers.map(h=>csvEscape(r[h])).join(","));
   const bom="\uFEFF";
