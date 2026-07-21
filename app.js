@@ -416,8 +416,8 @@ async function makeReportCanvas(){
   const cardW=W-margin*2;
   const imageGap=20;
   const imageW=Math.floor((cardW-imageGap)/2);
-  const imageH=500;
-  const H=1140;
+  const imageH=460;
+  const H=1200;
 
   const c=document.createElement("canvas");
   c.width=W; c.height=H;
@@ -433,7 +433,7 @@ async function makeReportCanvas(){
   ctx.font="bold 38px 'Yu Gothic','Meiryo',sans-serif";
   ctx.fillText("ゴルフ場芝生 RGB簡易診断・相談用レポート",margin,52);
   ctx.font="22px 'Yu Gothic','Meiryo',sans-serif";
-  ctx.fillText("Ver.0.6.2",margin,88);
+  ctx.fillText("Ver.0.6.3.2",margin,88);
 
   const course=$("useMeta").checked?($("courseName").value||"－"):"－";
   const date=$("useMeta").checked?($("shootDate").value||"－"):"－";
@@ -476,7 +476,16 @@ async function makeReportCanvas(){
 
   const r=document.createElement("canvas");
   r.width=resultOverlay.width; r.height=resultOverlay.height;
-  r.getContext("2d").putImageData(resultOverlay,0,0);
+  const reportMode=$("mapMode")?.value||"simple";
+  const reportMetric=$("gradientMetric")?.value||"score";
+  let reportGradient=null;
+  if(reportMode==="gradient"){
+    reportGradient=makeGradientOverlay(reportMetric);
+    if(reportGradient) r.getContext("2d").putImageData(reportGradient.image,0,0);
+    else r.getContext("2d").putImageData(resultOverlay,0,0);
+  }else{
+    r.getContext("2d").putImageData(resultOverlay,0,0);
+  }
 
   function drawCover(src,x,y,w,h){
     const sw=src.width, sh=src.height;
@@ -492,8 +501,25 @@ async function makeReportCanvas(){
   ctx.fillStyle="#1d2a24";
   ctx.font="bold 24px 'Yu Gothic','Meiryo',sans-serif";
   ctx.fillText("元画像",margin,y);
-  ctx.fillText("簡易診断画像",margin+imageW+imageGap,y);
-  y+=14;
+  const metricNames={score:"総合活性スコア",vari:"VARI",gli:"GLI",exg:"ExG"};
+  const analysisTitle=reportMode==="gradient" ? `数値グラデーション（${metricNames[reportMetric]}）` : "低活性候補表示";
+  ctx.fillText(analysisTitle,margin+imageW+imageGap,y);
+  y+=18;
+
+  if(reportMode==="gradient" && reportGradient){
+    const lx=margin+imageW+imageGap, ly=y, lw=imageW, lh=18;
+    const grad=ctx.createLinearGradient(lx,0,lx+lw,0);
+    grad.addColorStop(0,"#d7191c"); grad.addColorStop(.18,"#f46d43");
+    grad.addColorStop(.36,"#fdae61"); grad.addColorStop(.50,"#ffff66");
+    grad.addColorStop(.68,"#66bd63"); grad.addColorStop(.84,"#20b2aa"); grad.addColorStop(1,"#2c7bb6");
+    ctx.fillStyle=grad; ctx.fillRect(lx,ly,lw,lh);
+    ctx.fillStyle="#34413b"; ctx.font="16px 'Yu Gothic','Meiryo',sans-serif";
+    const digits=reportMetric==="score"?2:3;
+    ctx.fillText(`低い ${reportGradient.min.toFixed(digits)}`,lx,ly+38);
+    const highText=`高い ${reportGradient.max.toFixed(digits)}`;
+    ctx.fillText(highText,lx+lw-ctx.measureText(highText).width,ly+38);
+    y+=46;
+  }
 
   drawCover(o,margin,y,imageW,imageH);
   drawCover(r,margin+imageW+imageGap,y,imageW,imageH);
