@@ -569,9 +569,9 @@ async function makeReportCanvas(){
   ctx.fillRect(0,0,W,118);
   ctx.fillStyle="#ffffff";
   ctx.font="bold 38px 'Yu Gothic','Meiryo',sans-serif";
-  ctx.fillText("ゴルフ場芝生 RGB簡易診断・相談用レポート",margin,52);
+  ctx.fillText("Turf Vision ゴルフ場芝生RGB診断レポート",margin,52);
   ctx.font="22px 'Yu Gothic','Meiryo',sans-serif";
-  ctx.fillText("Ver.0.6.8",margin,88);
+  ctx.fillText("Ver7.0 正式版",margin,88);
 
   const course=$("useMeta").checked?($("courseName").value||"－"):"－";
   const date=$("useMeta").checked?($("shootDate").value||"－"):"－";
@@ -680,7 +680,7 @@ async function makeReportCanvas(){
 
   ctx.fillStyle="#68736d";
   ctx.font="18px 'Yu Gothic','Meiryo',sans-serif";
-  ctx.fillText("※病害・虫害・ドライの原因確定ではなく、相談・現地確認用の簡易レポートです。",margin,y+151);
+  ctx.fillText("※病害・虫害・ドライの原因を確定するものではなく、現地確認を補助する簡易診断レポートです。",margin,y+151);
 
   return c;
 }
@@ -692,7 +692,7 @@ $("saveReportBtn").onclick=async()=>{
   try{
     const c=await makeReportCanvas();
     const a=document.createElement("a");
-    a.download=buildSaveName().replace(/\.png$/,"_相談用レポート.jpg");
+    a.download=buildSaveName().replace(/\.png$/,"_診断レポート.jpg");
     a.href=c.toDataURL("image/jpeg",0.86);
     a.click();
   }catch(e){alert("レポート保存エラー："+e.message);}

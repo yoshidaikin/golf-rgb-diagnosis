@@ -1,4 +1,4 @@
-const CACHE = "turf-vision-v700";
+const CACHE = "turf-vision-v701-report-label";
 const ASSETS = ["./", "./index.html", "./app.js", "./manifest.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png", "./favicon-32.png"];
 
 self.addEventListener("install", event => {
