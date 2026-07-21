@@ -1,5 +1,5 @@
-const CACHE = "turf-rgb-v068-field-calibration";
-const ASSETS = ["./", "./index.html", "./app.js", "./manifest.json", "./icon-192.png", "./icon-512.png"];
+const CACHE = "turf-vision-v700";
+const ASSETS = ["./", "./index.html", "./app.js", "./manifest.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png", "./favicon-32.png"];
 
 self.addEventListener("install", event => {
   self.skipWaiting();
