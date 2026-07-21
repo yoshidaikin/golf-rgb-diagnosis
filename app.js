@@ -161,22 +161,25 @@ function alertRgb(t){
 }
 function makeAlertOverlay(){
   if(!lastAnalysisData || !resultOriginal) return null;
-  const {w,h,n,analysis,vegetation,shadow,sand,vari,patternDensity}=lastAnalysisData;
+  const {w,h,n,analysis,vegetation,shadow,sand,vari,patternDensity,lowDensity}=lastAnalysisData;
   const species=$("species")?.value||"ベント芝";
   const range=FIXED_GRADIENT_RANGES[species]?.vari || [0.015,0.145];
   const den=(range[1]-range[0])||1;
   const out=new ImageData(new Uint8ClampedArray(resultOriginal.data),w,h);
+  const clusterMin=species==="コウライ芝"?.16:species==="ティフトン・バミューダ"?.12:.10;
   for(let i=0,j=0;i<n;i++,j+=4){
-    if(!vegetation[i]){out.data[j]*=.82;out.data[j+1]*=.82;out.data[j+2]*=.82;continue;}
+    if(!vegetation[i]){out.data[j]*=.90;out.data[j+1]*=.90;out.data[j+2]*=.90;continue;}
     if(shadow[i]) continue;
     if(sand[i]){out.data[j]=255;out.data[j+1]=220;out.data[j+2]=80;continue;}
     if(!analysis[i]) continue;
     const t=clamp((vari[i]-range[0])/den,0,1);
-    const bermudaPattern = species==="ティフトン・バミューダ" && patternDensity && patternDensity[i]>.18;
-    if(t<.62 || bermudaPattern){
-      const severity=bermudaPattern?Math.max(.45,1-t):(1-t/.62);
-      const c=severity>.72?[210,35,35]:severity>.38?[245,120,45]:[250,205,65];
-      const alpha=.18+.48*clamp(severity,0,1);
+    const cluster=lowDensity?lowDensity[i]:0;
+    const bermudaPattern = species==="ティフトン・バミューダ" && patternDensity && patternDensity[i]>.24 && cluster>.10;
+    const weakCluster=cluster>clusterMin;
+    if((t<.54 && weakCluster) || bermudaPattern){
+      const severity=bermudaPattern?Math.max(.48,1-t):clamp((.54-t)/.54 + cluster*.55,0,1);
+      const c=severity>.74?[210,35,35]:severity>.42?[245,120,45]:[250,205,65];
+      const alpha=.12+.42*severity;
       out.data[j]=Math.round(out.data[j]*(1-alpha)+c[0]*alpha);
       out.data[j+1]=Math.round(out.data[j+1]*(1-alpha)+c[1]*alpha);
       out.data[j+2]=Math.round(out.data[j+2]*(1-alpha)+c[2]*alpha);
@@ -330,7 +333,7 @@ function runAnalysis(){
   ctx.drawImage(baseCanvas,crop.x,crop.y,crop.w,crop.h,0,0,w,h);
   const im=ctx.getImageData(0,0,w,h), d=im.data, n=w*h;
   let vari=new Float32Array(n),gli=new Float32Array(n),exg=new Float32Array(n), val=new Float32Array(n), sat=new Float32Array(n);
-  let vegetation=new Uint8Array(n), shadow=new Uint8Array(n), sand=new Uint8Array(n), analysis=new Uint8Array(n), brown=new Uint8Array(n);
+  let vegetation=new Uint8Array(n), shadow=new Uint8Array(n), sand=new Uint8Array(n), analysis=new Uint8Array(n), brown=new Uint8Array(n), white=new Uint8Array(n);
   const mode=$("mode").value, species=$("species").value, top=$("topdress").value, pre=PRESETS[species];
   for(let i=0,j=0;i<n;i++,j+=4){
     const r=d[j],g=d[j+1],b=d[j+2], total=r+g+b||1;
@@ -340,6 +343,8 @@ function runAnalysis(){
     const [hh,ss,vv]=rgbToHsv(r,g,b); sat[i]=ss; val[i]=vv;
     // 黄褐色～褐色の簡易候補。日照条件の影響を受けるため、単独では判定しない。
     brown[i]=((r>g*0.92)&&(g>b*1.03)&&(r>b*1.12)&&(ss>18)&&(vv>35))?1:0;
+    // 白化候補。高輝度かつ低彩度で、目砂指定時は後段で補正する。
+    white[i]=((vv>145)&&(ss<42)&&(Math.abs(r-g)<26)&&(Math.abs(g-b)<30))?1:0;
     let ok=false;
     if(mode==="スマホ近距離撮影") ok=vv>=18&&vv<=250&&ss>=4;
     else if(mode==="スマホ中距離撮影") ok=g>=r-22&&g>=b-24&&hh>=12&&hh<=112&&ss>=6&&vv>=22;
@@ -351,7 +356,7 @@ function runAnalysis(){
   const local=gaussianBlur(val,w,h,mode==="ドローン撮影"?24:mode==="スマホ中距離撮影"?18:12);
   const ratioLimit=mode==="ドローン撮影"?.66:mode==="スマホ中距離撮影"?.54:.42;
   const absLimit=mode==="ドローン撮影"?95:mode==="スマホ中距離撮影"?72:48;
-  let vegCount=0,shadowCount=0,sandCount=0,analysisCount=0,brownCount=0;
+  let vegCount=0,shadowCount=0,sandCount=0,analysisCount=0,brownCount=0,whiteCount=0;
   for(let i=0;i<n;i++){
     if(!vegetation[i])continue; vegCount++;
     const ratio=val[i]/(local[i]+1e-6);
@@ -363,7 +368,7 @@ function runAnalysis(){
       if(sand[i])sandCount++;
     }
     analysis[i]=(vegetation[i]&&!shadow[i]&&!sand[i])?1:0;
-    if(analysis[i]){analysisCount++; if(brown[i])brownCount++;}
+    if(analysis[i]){analysisCount++; if(brown[i])brownCount++; if(white[i])whiteCount++;}
   }
   if(analysisCount<500) throw new Error("評価できる芝が少なすぎます。範囲や条件を見直してください。");
   const vv=[],gg=[],ee=[];
@@ -379,11 +384,23 @@ function runAnalysis(){
     votes[i]=(vari[i]<pre.vari)+(gli[i]<pre.gli)+(exg[i]<pre.exg);
     scores.push(score[i]);
   }
-  const th=percentile(scores,pre.pct), low=new Uint8Array(n);
-  let lowCount=0;
+  const th=percentile(scores,pre.pct), rawLow=new Uint8Array(n);
   for(let i=0;i<n;i++)if(analysis[i]){
     let isLow=species==="ベント芝"?(votes[i]>=2&&score[i]<=th):(score[i]<=th&&(votes[i]>=1||score[i]<th*.85));
-    if(isLow){low[i]=1;lowCount++}
+    if(isLow) rawLow[i]=1;
+  }
+  // 高麗芝は葉先・芝目の細かな点反応が多いため、局所的にまとまった反応だけを採用する。
+  const rawLowFloat=new Float32Array(n);
+  for(let i=0;i<n;i++) rawLowFloat[i]=rawLow[i]?1:0;
+  const lowRadius=species==="コウライ芝"?(mode==="スマホ近距離撮影"?8:10):(mode==="スマホ近距離撮影"?5:7);
+  const lowDensity=gaussianBlur(rawLowFloat,w,h,lowRadius);
+  const low=new Uint8Array(n);
+  let lowCount=0;
+  for(let i=0;i<n;i++) if(analysis[i]){
+    let keep=rawLow[i]===1;
+    if(species==="コウライ芝") keep=keep && lowDensity[i]>.105;
+    else if(species==="ティフトン・バミューダ") keep=keep && lowDensity[i]>.075;
+    if(keep){low[i]=1;lowCount++;}
   }
 
   // ティフトン・バミューダのヒョウ柄や白化斑を捉える試験的な模様解析。
@@ -399,8 +416,11 @@ function runAnalysis(){
   }
   const patternAreaRate=patternArea/analysisCount*100;
   const strongPatternRate=strongPatternArea/analysisCount*100;
-  let patternIndex=clamp(0.62*patternAreaRate+1.35*strongPatternRate,0,100);
-  if(species!=="ティフトン・バミューダ") patternIndex*=0.35;
+  const whiteRateRaw=whiteCount/analysisCount*100;
+  const topdressPatternFactor=top==="薄目砂"?0.68:top==="散布直後"?0.42:top==="厚目砂"?0.50:1;
+  let patternIndex=clamp(0.52*patternAreaRate+1.10*strongPatternRate+0.55*whiteRateRaw,0,100);
+  if(species==="ティフトン・バミューダ") patternIndex*=topdressPatternFactor;
+  else patternIndex*=0.20;
   const mean=a=>a.reduce((s,x)=>s+x,0)/a.length;
   const sd=a=>{const m=mean(a);return Math.sqrt(a.reduce((s,x)=>s+(x-m)*(x-m),0)/a.length)};
   const variMean=mean(vv), gliMean=mean(gg), exgMean=mean(ee);
@@ -415,17 +435,21 @@ function runAnalysis(){
   // 芝種ごとの特性を踏まえたドライ指数（0～100）
   let dryIndex;
   if(species==="ベント芝"){
-    dryIndex = 0.42*lowRate + 0.28*(100-uniform) + 0.20*clamp((0.07-variMean)*500,0,100) + 0.10*brownRate;
+    // ベントは全面的な退色・VARI低下を強く評価する。
+    const globalStress=0.34*clamp((0.055-variMean)*820,0,100)+0.18*clamp((0.085-gliMean)*700,0,100);
+    dryIndex = 0.34*lowRate + 0.20*(100-uniform) + globalStress + 0.10*brownRate;
+    if(variMean<0) dryIndex+=10;
   }else if(species==="コウライ芝"){
-    dryIndex = 0.25*lowRate + 0.38*(100-uniform) + 0.22*clamp((0.04-variMean)*700,0,100) + 0.15*brownRate;
+    // 高麗は芝目・刈込方向による細かな差を許容し、面として続く反応を重視する。
+    dryIndex = 0.22*lowRate + 0.30*(100-uniform) + 0.28*clamp((0.025-variMean)*620,0,100) + 0.12*brownRate;
   }else{
-    dryIndex = 0.18*lowRate + 0.32*(100-uniform) + 0.30*clamp((0.055-variMean)*600,0,100) + 0.20*brownRate;
+    dryIndex = 0.20*lowRate + 0.24*(100-uniform) + 0.25*clamp((0.045-variMean)*560,0,100) + 0.16*brownRate + 0.08*whiteRateRaw;
   }
   dryIndex = clamp(dryIndex,0,100);
 
-  // 芝種別に現場確認用の区分を調整。高麗芝は葉色・芝目による自然な変動を広めに許容する。
+  // 芝種別に現場確認用の区分を調整。
   let dryStage;
-  const limits = species==="コウライ芝" ? [23,35,52,70] : species==="ティフトン・バミューダ" ? [20,33,50,68] : [18,32,48,68];
+  const limits = species==="コウライ芝" ? [24,38,55,72] : species==="ティフトン・バミューダ" ? [22,36,54,70] : [16,28,44,64];
   if(dryIndex < limits[0]) dryStage="通常範囲";
   else if(dryIndex < limits[1]) dryStage="要観察";
   else if(dryIndex < limits[2]) dryStage="ドライ予兆";
@@ -449,11 +473,17 @@ function runAnalysis(){
     grade="D"; gradeText="ドライ反応強い"; gradeColor="#c62828";
   }
 
-  // バミューダは平均緑量が高くても、まとまった白化・ヒョウ柄がある場合は別評価する。
+  // バミューダは模様指数だけで判定を上げず、白化率・ドライ指数との組み合わせで評価する。
   if(species==="ティフトン・バミューダ"){
-    if(patternIndex>=42){grade="D";gradeText="模様反応強い・要調査";gradeColor="#c62828";}
-    else if(patternIndex>=25 && grade!=="D"){grade="C";gradeText="ヒョウ柄・白化疑い";gradeColor="#d66a00";}
-    else if(patternIndex>=12 && grade==="A"){grade="B";gradeText="模様要観察";gradeColor="#9a7b00";}
+    const patternEvidence=patternIndex>=28 && (whiteRateRaw>=2.2 || dryIndex>=24 || variMean<0.045);
+    const strongPatternEvidence=patternIndex>=42 && (whiteRateRaw>=4.0 || dryIndex>=34);
+    if(strongPatternEvidence){grade="D";gradeText="模様反応強い・要調査";gradeColor="#c62828";}
+    else if(patternEvidence && grade!=="D"){grade="C";gradeText="ヒョウ柄・白化疑い";gradeColor="#d66a00";}
+    else if(patternIndex>=20 && (whiteRateRaw>=1.2 || dryIndex>=20) && grade==="A"){grade="B";gradeText="模様要観察";gradeColor="#9a7b00";}
+  }
+  // ベントはVARIがマイナス、またはVARI/GLIがともに大きく低下した場合は最低Cとする。
+  if(species==="ベント芝" && (variMean<0 || (variMean<0.015 && gliMean<0.055)) && grade<"C"){
+    grade="C"; gradeText="低活性・ドライ反応"; gradeColor="#d66a00";
   }
 
   // 補助的な安全側補正
@@ -462,7 +492,7 @@ function runAnalysis(){
   }else if((cover < 78 || uniform < 55) && grade==="A"){
     grade="B"; gradeText="要観察"; gradeColor="#9a7b00";
   }
-  lastAnalysisData={w,h,n,analysis,vegetation,shadow,sand,score,vari,gli,exg,patternDensity};
+  lastAnalysisData={w,h,n,analysis,vegetation,shadow,sand,score,vari,gli,exg,patternDensity,lowDensity};
   resultOriginal=ctx.getImageData(0,0,w,h);
   resultOverlay=new ImageData(new Uint8ClampedArray(resultOriginal.data),w,h);
   for(let i=0,j=0;i<n;i++,j+=4){
@@ -486,7 +516,7 @@ function runAnalysis(){
   $("gliMean").textContent=gliMean.toFixed(3);
   $("dryIndex").textContent=dryIndex.toFixed(0)+"/100";
   $("dryStage").textContent=dryStage;
-  const comment = (species==="ティフトン・バミューダ" && patternIndex>=25)
+  const comment = (species==="ティフトン・バミューダ" && patternIndex>=28 && (whiteRateRaw>=2.2 || dryIndex>=24))
     ? "ドライ指数だけでは良好に見えても、まとまったヒョウ柄・白化反応が出ています。生理障害、刈込み・散水ムラ、根圏状態を現地確認してください。"
     : dryStage==="通常範囲"
     ? "現時点では明確なドライ反応は少ない状態です。撮影条件を揃えて定期比較してください。"
@@ -498,7 +528,7 @@ function runAnalysis(){
     ? "初期ドライ反応が疑われます。散水だけで戻るか、浸透剤や根圏状態も確認してください。"
     : "ドライ反応が強く出ています。早めの散水対応と根圏・撥水状態の追加確認が必要です。";
   $("resultComment").textContent=comment;
-  lastMetrics={grade,gradeText,lowRate,uniform,cover,variMean,gliMean,dryIndex,dryStage,patternIndex,patternStage};
+  lastMetrics={grade,gradeText,lowRate,uniform,cover,variMean,gliMean,dryIndex,dryStage,patternIndex,patternStage,whiteRate:whiteRateRaw};
   $("teacherSection").classList.remove("hidden");
   const rc=$("resultCanvas");rc.width=w;rc.height=h;renderAnalysisView();
   $("resultSection").classList.remove("hidden");$("resultSection").scrollIntoView({behavior:"smooth"});
@@ -541,7 +571,7 @@ async function makeReportCanvas(){
   ctx.font="bold 38px 'Yu Gothic','Meiryo',sans-serif";
   ctx.fillText("ゴルフ場芝生 RGB簡易診断・相談用レポート",margin,52);
   ctx.font="22px 'Yu Gothic','Meiryo',sans-serif";
-  ctx.fillText("Ver.0.6.7",margin,88);
+  ctx.fillText("Ver.0.6.8",margin,88);
 
   const course=$("useMeta").checked?($("courseName").value||"－"):"－";
   const date=$("useMeta").checked?($("shootDate").value||"－"):"－";
@@ -574,7 +604,7 @@ async function makeReportCanvas(){
   ctx.fillText(`ドライ段階：${lastMetrics.dryStage}`,metricX1,y+88);
   ctx.fillText(`低活性候補率：${lastMetrics.lowRate.toFixed(1)}%`,metricX2,y+88);
   ctx.fillText(`均一性：${lastMetrics.uniform.toFixed(1)}　芝抽出率：${lastMetrics.cover.toFixed(1)}%`,metricX1,y+130);
-  ctx.fillText(`VARI：${lastMetrics.variMean.toFixed(3)}　GLI：${lastMetrics.gliMean.toFixed(3)}　模様指数：${lastMetrics.patternIndex.toFixed(0)}`,metricX2,y+130);
+  ctx.fillText(`VARI：${lastMetrics.variMean.toFixed(3)}　GLI：${lastMetrics.gliMean.toFixed(3)}　模様指数：${lastMetrics.patternIndex.toFixed(0)}　白化候補：${(lastMetrics.whiteRate||0).toFixed(1)}%`,metricX2,y+130);
   y+=198;
 
   // Prepare source canvases

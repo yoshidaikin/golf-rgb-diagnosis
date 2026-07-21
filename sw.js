@@ -1,4 +1,4 @@
-const CACHE = "turf-rgb-v067-species-pattern";
+const CACHE = "turf-rgb-v068-field-calibration";
 const ASSETS = ["./", "./index.html", "./app.js", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", event => {
